@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "1be630dd802b66955be13a312794323b"
+client_id = "1XXXXXXX"
 name = "image bulk uploader"
 application_url = "https://transform-skins-bill-breeds.trycloudflare.com"
 embedded = true
