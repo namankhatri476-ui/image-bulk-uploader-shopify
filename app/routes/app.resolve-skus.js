@@ -4,6 +4,7 @@ export const action = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const skusString = formData.get("skus");
+  const statusFilter = formData.get("statusFilter") || "ALL";
   
   if (!skusString) {
     return Response.json({ error: "No SKUs provided" }, { status: 400 });
@@ -33,6 +34,7 @@ export const action = async ({ request }) => {
                 edges {
                   node {
                     id
+                    status
                   }
                 }
               }
@@ -48,13 +50,18 @@ export const action = async ({ request }) => {
           const edges = json.data?.products?.edges;
           
           if (edges && edges.length > 0) {
-            results[sku] = edges[0].node.id;
+            const product = edges[0].node;
+            if (statusFilter === "ALL" || product.status === statusFilter) {
+              results[sku] = { id: product.id, status: product.status };
+            } else {
+              results[sku] = { error: "status_mismatch", actualStatus: product.status };
+            }
           } else {
-            results[sku] = null;
+            results[sku] = { error: "not_found" };
           }
         } catch (error) {
           console.error(`Error resolving SKU ${sku}:`, error);
-          results[sku] = null;
+          results[sku] = { error: "server_error" };
         }
       })
     );

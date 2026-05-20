@@ -2,7 +2,7 @@
 
 client_id = "1XXXXXXX"
 name = "image bulk uploader"
-application_url = "https://transform-skins-bill-breeds.trycloudflare.com"
+application_url = "https://productive-fixes-amounts-agriculture.trycloudflare.com"
 embedded = true
 
 [build]
@@ -24,7 +24,7 @@ topics = [ "app/uninstalled" ]
 scopes = "write_products,write_metaobjects,write_metaobject_definitions"
 
 [auth]
-redirect_urls = [ "https://transform-skins-bill-breeds.trycloudflare.comauth/callback" ]
+redirect_urls = [ "https://productive-fixes-amounts-agriculture.trycloudflare.com/auth/callback" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"

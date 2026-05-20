@@ -14,6 +14,56 @@ export const action = async ({ request }) => {
   }
 
   try {
+    // 0. Check for duplicates
+    const productMediaResponse = await admin.graphql(
+      `#graphql
+      query getProductMedia($id: ID!) {
+        product(id: $id) {
+          media(first: 100) {
+            edges {
+              node {
+                alt
+                ... on MediaImage {
+                  image {
+                    url
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      {
+        variables: { id: productId },
+      }
+    );
+
+    const productMediaJson = await productMediaResponse.json();
+    const existingMedia = productMediaJson.data?.product?.media?.edges || [];
+
+    const isDuplicate = existingMedia.some(({ node }) => {
+      if (node.alt && node.alt === filename) return true;
+      
+      if (node.image?.url) {
+        const existingPath = new URL(node.image.url).pathname;
+        const existingFilename = existingPath.split('/').pop().toLowerCase();
+        
+        const baseName = filename.substring(0, filename.lastIndexOf('.')).toLowerCase() || filename.toLowerCase();
+        
+        if (existingFilename.startsWith(baseName + ".") || existingFilename.startsWith(baseName + "_")) {
+            return true;
+        }
+        if (existingFilename === filename.toLowerCase()) {
+            return true;
+        }
+      }
+      return false;
+    });
+
+    if (isDuplicate) {
+      return Response.json({ success: false, error: "Duplicate image" });
+    }
+
     // 1. Create Staged Upload
     const stagedUploadsResponse = await admin.graphql(
       `#graphql
@@ -99,6 +149,7 @@ export const action = async ({ request }) => {
             {
               originalSource: target.resourceUrl,
               mediaContentType: "IMAGE",
+              alt: filename
             },
           ],
         },

@@ -38,7 +38,7 @@ if (host === "localhost") {
 export default defineConfig({
   server: {
     allowedHosts: [
-      "transform-skins-bill-breeds.trycloudflare.com"
+      "productive-fixes-amounts-agriculture.trycloudflare.com"
     ],
     cors: {
       preflightContinue: true,

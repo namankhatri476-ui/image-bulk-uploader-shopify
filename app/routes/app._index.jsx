@@ -15,7 +15,9 @@ import {
   Scrollable,
   Box,
   Divider,
-  Icon
+  Icon,
+  DataTable,
+  Select
 } from "@shopify/polaris";
 import { FolderIcon } from "@shopify/polaris-icons";
 
@@ -34,6 +36,8 @@ export default function Index() {
 
   const [filesBySku, setFilesBySku] = useState({});
   const [skuStatus, setSkuStatus] = useState({});
+  const [failedUploads, setFailedUploads] = useState([]);
+  const [productStatus, setProductStatus] = useState("ALL");
   const [overallStatus, setOverallStatus] = useState("idle"); // idle | resolving | ready | uploading | completed
   const [logs, setLogs] = useState([]);
   const [progress, setProgress] = useState({ total: 0, current: 0 });
@@ -54,28 +58,39 @@ export default function Index() {
     if (files.length === 0) return;
 
     setLogs([]);
+    setFailedUploads([]);
     const grouped = {};
     let totalImages = 0;
+    const newFailed = [];
 
     files.forEach((file) => {
       const parts = file.webkitRelativePath.split("/");
       if (parts.length >= 2) {
         const sku = parts[parts.length - 2];
-        if (!file.name.startsWith(".") && file.type.startsWith("image/")) {
-          if (!grouped[sku]) grouped[sku] = [];
-          grouped[sku].push(file);
-          grouped[sku].sort((a, b) => a.name.localeCompare(b.name));
-          totalImages++;
+        if (!file.name.startsWith(".")) {
+          if (file.type.startsWith("image/")) {
+            if (!grouped[sku]) grouped[sku] = [];
+            grouped[sku].push(file);
+            grouped[sku].sort((a, b) => a.name.localeCompare(b.name));
+            totalImages++;
+          } else {
+            newFailed.push({ sku, file: file.name, reason: "Invalid file format" });
+          }
         }
       }
     });
 
     const skus = Object.keys(grouped);
     if (skus.length === 0) {
+      if (newFailed.length > 0) {
+        setFailedUploads(newFailed);
+        setOverallStatus("completed");
+      }
       addLog("No valid images found in subfolders.", "critical");
       return;
     }
 
+    setFailedUploads(newFailed);
     setFilesBySku(grouped);
     setOverallStatus("resolving");
     addLog(`Found ${skus.length} SKUs containing ${totalImages} images. Resolving Product IDs...`, "info");
@@ -86,6 +101,7 @@ export default function Index() {
   const resolveSkus = async (skus) => {
     const formData = new FormData();
     formData.append("skus", JSON.stringify(skus));
+    formData.append("statusFilter", productStatus);
 
     try {
       const res = await fetch("/app/resolve-skus", { method: "POST", body: formData });
@@ -97,15 +113,22 @@ export default function Index() {
       let totalFilesToUpload = 0;
 
       for (const sku of skus) {
-        const productId = results[sku];
-        if (productId) {
-          newSkuStatus[sku] = { status: "resolved", productId };
+        const result = results[sku];
+        
+        if (result && result.id) {
+          newSkuStatus[sku] = { status: "resolved", productId: result.id };
           foundCount++;
           totalFilesToUpload += filesBySku[sku]?.length || 0;
+        } else if (result && result.error === "status_mismatch") {
+          newSkuStatus[sku] = { status: "not_found", productId: null };
+          notFoundCount++;
+          addLog(`Warning: Product for SKU "${sku}" is ${result.actualStatus}, but filter is ${productStatus}. Skipping...`, "warning");
+          setFailedUploads((prev) => [...prev, { sku, file: "All files", reason: `Skipped: Product is ${result.actualStatus}` }]);
         } else {
           newSkuStatus[sku] = { status: "not_found", productId: null };
           notFoundCount++;
           addLog(`Warning: Product not found for SKU "${sku}". Skipping...`, "warning");
+          setFailedUploads((prev) => [...prev, { sku, file: "All files", reason: "SKU not found in Shopify" }]);
         }
       }
 
@@ -148,15 +171,19 @@ export default function Index() {
             if (data.success) {
               addLog(`[${sku}] Successfully uploaded ${file.name}`, "success");
             } else {
-              addLog(`[${sku}] Failed to upload ${file.name}: ${data.error}`, "critical");
+              const errorMessage = data.error || "API error";
+              addLog(`[${sku}] Failed to upload ${file.name}: ${errorMessage}`, "critical");
+              setFailedUploads((prev) => [...prev, { sku, file: file.name, reason: errorMessage }]);
               skuSuccess = false;
             }
           } else {
             addLog(`[${sku}] Server error uploading ${file.name}`, "critical");
+            setFailedUploads((prev) => [...prev, { sku, file: file.name, reason: "Server error / Upload timeout" }]);
             skuSuccess = false;
           }
         } catch (e) {
           addLog(`[${sku}] Exception uploading ${file.name}: ${e.message}`, "critical");
+          setFailedUploads((prev) => [...prev, { sku, file: file.name, reason: `Exception: ${e.message}` }]);
           skuSuccess = false;
         }
 
@@ -178,6 +205,7 @@ export default function Index() {
   const reset = () => {
     setFilesBySku({});
     setSkuStatus({});
+    setFailedUploads([]);
     setOverallStatus("idle");
     setLogs([]);
     setProgress({ total: 0, current: 0 });
@@ -207,6 +235,21 @@ export default function Index() {
                         <br />
                         Example: Images / SKU-123 / front.jpg
                       </Text>
+
+                      <Box paddingBlockStart="200" paddingBlockEnd="200" width="100%" maxWidth="300px">
+                        <Select
+                          label="Target Product Status"
+                          options={[
+                            {label: 'All Products', value: 'ALL'},
+                            {label: 'Active Only', value: 'ACTIVE'},
+                            {label: 'Draft Only', value: 'DRAFT'},
+                            {label: 'Archived Only', value: 'ARCHIVED'},
+                          ]}
+                          onChange={setProductStatus}
+                          value={productStatus}
+                        />
+                      </Box>
+
                       <Button onClick={() => fileInputRef.current?.click()} size="large">
                         Choose Folder
                       </Button>
@@ -276,6 +319,21 @@ export default function Index() {
             )}
           </BlockStack>
         </Layout.Section>
+
+        {overallStatus === "completed" && failedUploads.length > 0 && (
+          <Layout.Section>
+            <Card padding="0">
+              <Box padding="400" borderBottomWidth="025" borderColor="border">
+                <Text variant="headingMd" as="h3" tone="critical">Failed / Skipped Uploads</Text>
+              </Box>
+              <DataTable
+                columnContentTypes={['text', 'text', 'text']}
+                headings={['SKU', 'File', 'Reason for failure']}
+                rows={failedUploads.map(f => [f.sku, f.file, f.reason])}
+              />
+            </Card>
+          </Layout.Section>
+        )}
 
         <Layout.Section>
           <Card padding="0">
